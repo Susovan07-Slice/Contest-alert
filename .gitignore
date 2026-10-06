@@ -1,3 +1,7 @@
 venv/
 __pycache__/
 *.pyc
+
+firebase-admin.json
+
+firebase-admin.json.json

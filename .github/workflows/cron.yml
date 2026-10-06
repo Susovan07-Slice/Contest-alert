@@ -1,0 +1,30 @@
+name: Contest Alarm Cron
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  run-tracker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests firebase-admin
+
+      - name: Create Firebase Admin Secret
+        run: |
+          echo '${{ secrets.FIREBASE_JSON }}' > firebase-admin.json
+
+      - name: Run Contest Tracker
+        run: python main.py

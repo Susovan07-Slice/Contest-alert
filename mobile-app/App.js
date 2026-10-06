@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, FlatList, ActivityIndicator, RefreshControl, Linking, TouchableOpacity, SafeAreaView, StatusBar, TextInput, KeyboardAvoidingView, Platform, Image, Dimensions, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import messaging from '@react-native-firebase/messaging';
 
 const LOGOS = {
   Codeforces: require('./assets/cf.png'),
@@ -36,6 +37,22 @@ export default function App() {
       } catch (e) { /* ignore */ }
     };
     loadData();
+
+    // Firebase Cloud Messaging - Topic Subscription for Remote Alarms
+    const setupFirebase = async () => {
+      try {
+        const authStatus = await messaging().requestPermission();
+        const enabled =
+          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+        if (enabled) {
+          await messaging().subscribeToTopic('Coding_Contests');
+        }
+      } catch (e) {
+        // Will safely fail if running in Expo Go. Requires EAS Build for native Firebase.
+      }
+    };
+    setupFirebase();
   }, []);
 
   const extractAndValidateCF = (url) => {

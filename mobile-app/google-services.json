@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "974036101133",
+    "project_id": "contest-alarm-tracker",
+    "storage_bucket": "contest-alarm-tracker.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:974036101133:android:8fc58e572951fc613bcd44",
+        "android_client_info": {
+          "package_name": "com.susovan.contestalarm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_mPmC2YewuKGbEFU2TCVHQGqy-sC1u20"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,10 +1,17 @@
 import requests
 import time
 from datetime import datetime
-import threading
-import winsound
-import tkinter as tk
-from tkinter import messagebox
+import firebase_admin
+from firebase_admin import credentials, messaging
+
+print("Initializing Firebase Admin SDK...")
+try:
+    cred = credentials.Certificate("firebase-admin.json")
+    firebase_admin.initialize_app(cred)
+    print("Firebase connected successfully!\n")
+except Exception as e:
+    print(f"FATAL: Could not initialize Firebase. Make sure firebase-admin.json is present. Error: {e}")
+    exit(1)
 
 REFRESH_INTERVAL_HOURS = 6
 
@@ -82,91 +89,64 @@ def get_all_contests():
     print(f"Successfully fetched {len(upcoming_7_days)} upcoming contests within next 7 days! (CF: {len(cf)}, LC: {len(lc)})\n")
     return upcoming_7_days
 
-def trigger_alarm(contest_name, time_str, clash=False):
-    def alarm_thread():
-        # Start looping alarm sound continuously
-        winsound.PlaySound("SystemHand", winsound.SND_ALIAS | winsound.SND_LOOP | winsound.SND_ASYNC)
+def send_push_notification(contest_name, time_str, clash=False):
+    prefix = "🔥 CLASH ALERT!" if clash else "🚨 ALARM!"
+    title = f"{prefix} {contest_name}"
+    body = f"WAKE UP! '{contest_name}' starts in {time_str}!"
+    if clash:
+        body += "\n⚠️ PREPARE YOURSELF: Multiple platforms have contests today!"
         
-        # Create a topmost blocking popup
-        root = tk.Tk()
-        root.withdraw() 
-        root.attributes("-topmost", True) 
-        
-        prefix = "🔥 CLASH ALERT!" if clash else "🚨 ALARM!"
-        msg = f"{prefix}\n\nWAKE UP! '{contest_name}' starts in {time_str}!\n\nClick OK to stop the alarm."
-        if clash:
-            msg += "\n\n⚠️ PREPARE YOURSELF: Multiple platforms have contests today!"
-            
-        messagebox.showwarning("CONTEST ALARM", msg)
-        
-        # Stop the sound when the user manually clicks OK
-        winsound.PlaySound(None, winsound.SND_PURGE)
-        root.destroy()
-        
-    threading.Thread(target=alarm_thread, daemon=True).start()
+    message = messaging.Message(
+        notification=messaging.Notification(
+            title=title,
+            body=body,
+        ),
+        topic='Coding_Contests',
+        android=messaging.AndroidConfig(
+            priority='high',
+            notification=messaging.AndroidNotification(
+                sound='default'
+            ),
+        ),
+        apns=messaging.APNSConfig(
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(sound='default')
+            )
+        )
+    )
+    try:
+        response = messaging.send(message)
+        print(f"Successfully sent Firebase push notification: {response}")
+    except Exception as e:
+        print(f"Error sending push notification: {e}")
 
 def main_loop():
-    print("Started Contest Alarm. Will notify 3 days, 1 hour, and 10 mins before contests.")
-    print("Press Ctrl+C to exit.\n")
+    print("Running stateless Contest Alarm Check...")
+    contests = get_all_contests()
+    now_epoch = time.time()
     
-    notified_milestones = set()
-    last_fetch_time = 0
-    contests = []
-    
-    MILESTONES = [
-        ('10_mins', 10 * 60, "10 minutes"),
-        ('1_hour', 60 * 60, "1 hour"),
-        ('3_days', 3 * 24 * 60 * 60, "3 days")
-    ]
-    
-    while True:
-        now_epoch = time.time()
+    for c in contests:
+        time_until_start = c['start_time_epoch'] - now_epoch
         
-        # 1. Refresh contest list every X hours (or if it's our first run)
-        if now_epoch - last_fetch_time > (REFRESH_INTERVAL_HOURS * 3600):
-            contests = get_all_contests()
-            last_fetch_time = now_epoch
+        # We check if the contest falls inside our 10-minute trigger windows!
+        # Because this script runs every 10 minutes via GitHub Actions, we don't need a database!
+        
+        # Window 1: 10 minutes away (between 0 and 10 mins)
+        if 0 < time_until_start <= 600:
+            print(f"TRIGGER: '{c['name']}' is 10 mins away!")
+            send_push_notification(c['name'], "10 minutes", c.get('clash'))
             
-        # 2. Check for upcoming contests that need an alarm
-        for c in contests:
-            time_until_start = c['start_time_epoch'] - now_epoch
-            if time_until_start <= 0:
-                continue
-                
-            crossed_milestone = None
-            msg_str = ""
+        # Window 2: 1 hour away (between 60 and 70 mins)
+        elif 3600 < time_until_start <= 4200:
+            print(f"TRIGGER: '{c['name']}' is 1 hour away!")
+            send_push_notification(c['name'], "1 hour", c.get('clash'))
             
-            for m_name, m_sec, m_label in MILESTONES:
-                if time_until_start <= m_sec:
-                    crossed_milestone = m_name
-                    msg_str = m_label
-                    break
-                    
-            if crossed_milestone and (c['id'], crossed_milestone) not in notified_milestones:
-                # TODO: We will hook this up to Firebase Push Notifications later!
-                prefix = "🔥 CLASH ALERT!" if c.get('clash') else "ALARM!"
-                
-                print(f"{prefix} '{c['name']}' starts in less than {msg_str}!")
-                if c.get('clash'):
-                    print("⚠️ Note: Prepare yourself, another platform also has a contest today!")
-                print(f"Link: {c['url']}\n")
-                
-                if crossed_milestone in ['10_mins', '1_hour']:
-                    trigger_alarm(c['name'], msg_str, c.get('clash'))
-                
-                notified_milestones.add((c['id'], crossed_milestone))
-                
-                if crossed_milestone == '10_mins':
-                    notified_milestones.add((c['id'], '1_hour'))
-                    notified_milestones.add((c['id'], '3_days'))
-                elif crossed_milestone == '1_hour':
-                    notified_milestones.add((c['id'], '3_days'))
-                
-        # 3. Sleep for a minute before checking the clocks again
-        time.sleep(60)
+        # Window 3: 3 days away (between 72 hours and 72h + 10m)
+        elif 259200 < time_until_start <= 259800:
+            print(f"TRIGGER: '{c['name']}' is 3 days away!")
+            send_push_notification(c['name'], "3 days", c.get('clash'))
+
+    print("Check complete. Exiting cleanly.")
 
 if __name__ == "__main__":
-    try:
-        main_loop()
-    except KeyboardInterrupt:
-        print("\nExiting Contest Alarm...")
+    main_loop()

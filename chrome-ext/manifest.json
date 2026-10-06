@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Contest Alarm Tracker",
+  "version": "1.0",
+  "description": "Never miss a contest. Blasts a manual siren alarm on your active browser tab 1 hour and 10 mins before coding contests.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://codeforces.com/*",
+    "https://leetcode.com/*",
+    "*://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

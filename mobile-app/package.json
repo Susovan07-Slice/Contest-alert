@@ -10,8 +10,6 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-chart-kit": "^7.0.4",
-    "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.2"
   },
   "scripts": {

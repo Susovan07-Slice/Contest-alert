@@ -1,6 +1,10 @@
 import requests
 import time
 from datetime import datetime
+import threading
+import winsound
+import tkinter as tk
+from tkinter import messagebox
 
 REFRESH_INTERVAL_HOURS = 6
 
@@ -46,58 +50,60 @@ def get_leetcode_contests():
         print(f"LeetCode Error: {e}")
         return []
 
-def get_codechef_contests():
-    url = "https://www.codechef.com/api/list/contests/all"
-    try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        data = response.json()
-        upcoming = []
-        now_epoch = time.time()
-        for c in data.get('future_contests', []):
-            iso_str = c.get('contest_start_date_iso')
-            if iso_str:
-                # Parse ISO string safely
-                dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
-                start_epoch = dt.timestamp()
-                
-                if start_epoch > now_epoch:
-                    upcoming.append({
-                        'id': f"cc_{c['contest_code']}",
-                        'name': f"CodeChef: {c['contest_name']}",
-                        'start_time_epoch': start_epoch,
-                        'url': f"https://www.codechef.com/{c['contest_code']}"
-                    })
-        return upcoming
-    except Exception as e:
-        print(f"CodeChef Error: {e}")
-        return []
-
 def get_all_contests():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching CF, LC, and CC...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching CF and LC...")
     cf = get_codeforces_contests()
     lc = get_leetcode_contests()
-    cc = get_codechef_contests()
     
-    all_contests = cf + lc + cc
-    all_contests.sort(key=lambda x: x['start_time_epoch'])
+    all_contests = cf + lc
+    
+    # Filter only contests within the next 7 days
+    now_epoch = time.time()
+    seven_days = 7 * 24 * 60 * 60
+    
+    upcoming_7_days = [c for c in all_contests if now_epoch < c['start_time_epoch'] <= now_epoch + seven_days]
+    upcoming_7_days.sort(key=lambda x: x['start_time_epoch'])
     
     # Check for same-day clashes between different platforms
     date_groups = {}
-    for c in all_contests:
+    for c in upcoming_7_days:
         date_str = datetime.fromtimestamp(c['start_time_epoch']).strftime('%Y-%m-%d')
         if date_str not in date_groups:
             date_groups[date_str] = set()
         
-        platform_prefix = c['id'][:2] # 'cf', 'lc', or 'cc'
+        platform_prefix = c['id'][:2] # 'cf' or 'lc'
         date_groups[date_str].add(platform_prefix)
         c['date_str'] = date_str
         
-    for c in all_contests:
+    for c in upcoming_7_days:
         # If there is more than 1 unique platform on this day, flag it
         c['clash'] = len(date_groups[c['date_str']]) > 1
 
-    print(f"Successfully fetched {len(all_contests)} upcoming contests! (CF: {len(cf)}, LC: {len(lc)}, CC: {len(cc)})\n")
-    return all_contests
+    print(f"Successfully fetched {len(upcoming_7_days)} upcoming contests within next 7 days! (CF: {len(cf)}, LC: {len(lc)})\n")
+    return upcoming_7_days
+
+def trigger_alarm(contest_name, time_str, clash=False):
+    def alarm_thread():
+        # Start looping alarm sound continuously
+        winsound.PlaySound("SystemHand", winsound.SND_ALIAS | winsound.SND_LOOP | winsound.SND_ASYNC)
+        
+        # Create a topmost blocking popup
+        root = tk.Tk()
+        root.withdraw() 
+        root.attributes("-topmost", True) 
+        
+        prefix = "🔥 CLASH ALERT!" if clash else "🚨 ALARM!"
+        msg = f"{prefix}\n\nWAKE UP! '{contest_name}' starts in {time_str}!\n\nClick OK to stop the alarm."
+        if clash:
+            msg += "\n\n⚠️ PREPARE YOURSELF: Multiple platforms have contests today!"
+            
+        messagebox.showwarning("CONTEST ALARM", msg)
+        
+        # Stop the sound when the user manually clicks OK
+        winsound.PlaySound(None, winsound.SND_PURGE)
+        root.destroy()
+        
+    threading.Thread(target=alarm_thread, daemon=True).start()
 
 def main_loop():
     print("Started Contest Alarm. Will notify 3 days, 1 hour, and 10 mins before contests.")
@@ -144,6 +150,9 @@ def main_loop():
                 if c.get('clash'):
                     print("⚠️ Note: Prepare yourself, another platform also has a contest today!")
                 print(f"Link: {c['url']}\n")
+                
+                if crossed_milestone in ['10_mins', '1_hour']:
+                    trigger_alarm(c['name'], msg_str, c.get('clash'))
                 
                 notified_milestones.add((c['id'], crossed_milestone))
                 

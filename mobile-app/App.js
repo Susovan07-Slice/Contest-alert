@@ -3,33 +3,26 @@ import { StyleSheet, Text, View, FlatList, ActivityIndicator, RefreshControl, Li
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LOGOS = {
-  Codeforces: require('./assets/logos/cf.png'),
-  LeetCode: require('./assets/logos/lc.png'),
-  CodeChef: require('./assets/logos/cc.png')
+  Codeforces: require('./assets/cf.png'),
+  LeetCode: require('./assets/lc.png')
 };
 
 const screenWidth = Dimensions.get('window').width;
 
 export default function App() {
-  const [handles, setHandles] = useState({ cf: '', lc: '', cc: '' });
-  const [draftHandles, setDraftHandles] = useState({ cf: '', lc: '', cc: '' });
-  const [userStats, setUserStats] = useState({ cf: null, lc: null, cc: null });
+  const [handles, setHandles] = useState({ cf: '', lc: '' });
+  const [draftHandles, setDraftHandles] = useState({ cf: '', lc: '' });
+  const [userStats, setUserStats] = useState({ cf: null, lc: null });
+  const [signUpEpochs, setSignUpEpochs] = useState({});
+  const [officialHistories, setOfficialHistories] = useState({ cf: [], lc: [] });
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(false);
-  const [currentTab, setCurrentTab] = useState('contests'); // 'contests' | 'account'
+  const [currentTab, setCurrentTab] = useState('contests'); 
   
   const [contests, setContests] = useState([]);
   const [pastContests, setPastContests] = useState([]);
-  
-  // Platform Detail View
   const [selectedPlatform, setSelectedPlatform] = useState(null); 
-
-  // Local Progress State
-  const [localRatings, setLocalRatings] = useState({ cf: [1000], lc: [1000], cc: [1000] });
-  const [attendedContests, setAttendedContests] = useState({});
-  const [loggingContest, setLoggingContest] = useState(null);
-  const [logRank, setLogRank] = useState('');
-  const [logSolved, setLogSolved] = useState('');
   const [isAddingAccount, setIsAddingAccount] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -38,135 +31,159 @@ export default function App() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const storedRatings = await AsyncStorage.getItem('localRatings');
-        const storedAttended = await AsyncStorage.getItem('attendedContests');
-        if (storedRatings) setLocalRatings(JSON.parse(storedRatings));
-        if (storedAttended) setAttendedContests(JSON.parse(storedAttended));
-      } catch (e) { console.error(e); }
+        const storedEpochs = await AsyncStorage.getItem('signUpEpochs');
+        if (storedEpochs) setSignUpEpochs(JSON.parse(storedEpochs));
+      } catch (e) { /* ignore */ }
     };
     loadData();
   }, []);
 
-  const saveLocalData = async (newRatings, newAttended) => {
-    try {
-      await AsyncStorage.setItem('localRatings', JSON.stringify(newRatings));
-      await AsyncStorage.setItem('attendedContests', JSON.stringify(newAttended));
-    } catch (e) { console.error(e); }
-  };
-
-  const submitLog = () => {
-    if (!logRank || !logSolved) return;
-    const rank = parseInt(logRank);
-    const solved = parseInt(logSolved);
-    
-    const delta = Math.max(-50, Math.floor(100 - (rank / 100)) + (solved * 10));
-    
-    let platCode = 'cf';
-    if (loggingContest.platform === 'LeetCode') platCode = 'lc';
-    if (loggingContest.platform === 'CodeChef') platCode = 'cc';
-
-    const currentRating = localRatings[platCode][localRatings[platCode].length - 1];
-    const newRating = Math.max(0, currentRating + delta);
-
-    const newRatings = { ...localRatings, [platCode]: [...localRatings[platCode], newRating] };
-    const newAttended = { ...attendedContests, [loggingContest.id]: { rank, solved, delta } };
-
-    setLocalRatings(newRatings);
-    setAttendedContests(newAttended);
-    saveLocalData(newRatings, newAttended);
-
-    setLoggingContest(null);
-    setLogRank('');
-    setLogSolved('');
-  };
-
-  const extractHandle = (url) => {
+  const extractAndValidateCF = (url) => {
     if (!url) return '';
-    try {
-      const cleanUrl = url.trim().replace(/\/$/, '');
-      const parts = cleanUrl.split('/');
-      return parts[parts.length - 1];
-    } catch {
-      return url;
-    }
+    const match = url.trim().match(/^https?:\/\/(www\.)?codeforces\.com\/profile\/([A-Za-z0-9_-]+)\/?$/i);
+    return match ? match[2] : null;
+  };
+
+  const extractAndValidateLC = (url) => {
+    if (!url) return '';
+    const match = url.trim().match(/^https?:\/\/(www\.)?leetcode\.com\/(u\/)?([A-Za-z0-9_-]+)\/?$/i);
+    return match ? match[3] : null;
   };
 
   const handleLogin = async () => {
-    const cfHandle = extractHandle(draftHandles.cf);
-    const lcHandle = extractHandle(draftHandles.lc);
-    const ccHandle = extractHandle(draftHandles.cc);
+    let cfHandle = '';
+    let lcHandle = '';
 
-    if (!cfHandle && !lcHandle && !ccHandle) {
-      alert("Please link at least one account URL to continue.");
+    if (draftHandles.cf) {
+       cfHandle = extractAndValidateCF(draftHandles.cf);
+       if (!cfHandle) return alert("Invalid Codeforces URL. Must be like https://codeforces.com/profile/username");
+    }
+    
+    if (draftHandles.lc) {
+       lcHandle = extractAndValidateLC(draftHandles.lc);
+       if (!lcHandle) return alert("Invalid LeetCode URL. Must be like https://leetcode.com/u/username");
+    }
+
+    if (!cfHandle && !lcHandle) {
+      alert("Please link at least one valid account URL to continue.");
       return;
     }
 
     setLoadingAuth(true);
-    let stats = { cf: null, lc: null, cc: null };
+    let stats = { cf: null, lc: null };
+    let histories = { cf: [], lc: [] };
+    
+    // Save signup epoch if this is their first time linking this platform
+    let updatedEpochs = { ...signUpEpochs };
+    const now = Date.now() / 1000;
+    if (cfHandle && !updatedEpochs.cf) updatedEpochs.cf = now - (7 * 86400); // subtract 7 days for testing visibility
+    if (lcHandle && !updatedEpochs.lc) updatedEpochs.lc = now - (7 * 86400);
 
     try {
+      // CODEFORCES OFFICIAL API
       if (cfHandle) {
         try {
           const res = await fetch(`https://codeforces.com/api/user.info?handles=${cfHandle}`);
           const data = await res.json();
+          if (data.status === 'FAILED') {
+             alert(`Codeforces account '${cfHandle}' does not exist on the official servers.`);
+             setLoadingAuth(false);
+             return;
+          }
           if (data.status === 'OK' && data.result.length > 0) {
              const user = data.result[0];
              stats.cf = { name: user.firstName ? `${user.firstName} (${cfHandle})` : cfHandle, rating: user.rating || 'Unrated', rank: user.rank || 'Unranked' };
           }
+          const histRes = await fetch(`https://codeforces.com/api/user.rating?handle=${cfHandle}`);
+          const histData = await histRes.json();
+          if (histData.status === 'OK') {
+             histories.cf = histData.result.map(r => ({
+                id: `cf_${r.contestId}`, name: r.contestName, rating: r.newRating, delta: r.newRating - r.oldRating, rank: r.rank,
+                dateStr: new Date(r.ratingUpdateTimeSeconds * 1000).toLocaleDateString([], {month: 'short', day: 'numeric'})
+             }));
+          }
         } catch(e) {
           stats.cf = { name: `${cfHandle} (Mock)`, rating: 1600, rank: 'Expert' };
+          histories.cf = [
+            { id: 'cf_mock', name: 'Mock CF Contest 1', rating: 1550, delta: +50, rank: 1200, dateStr: 'Oct 1' },
+            { id: 'cf_mock2', name: 'Mock CF Contest 2', rating: 1600, delta: +50, rank: 900, dateStr: 'Oct 5' }
+          ];
         }
       }
 
+      // LEETCODE OFFICIAL API
       if (lcHandle) {
         try {
           const url = "https://leetcode.com/graphql";
-          const payload = { query: `query { matchedUser(username: "${lcHandle}") { profile { realName ranking } submitStats { acSubmissionNum { count } } } userContestRanking(username: "${lcHandle}") { rating } }` };
+          const payload = { query: `query { matchedUser(username: "${lcHandle}") { profile { realName ranking } submitStats { acSubmissionNum { count } } } userContestRanking(username: "${lcHandle}") { rating } userContestRankingHistory(username: "${lcHandle}") { attended rating contest { title startTime } } }` };
           const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
           const data = await res.json();
+          
+          if (data.errors) {
+             alert(`LeetCode account '${lcHandle}' does not exist on the official servers.`);
+             setLoadingAuth(false);
+             return;
+          }
+          
           if (data.data?.matchedUser) {
              const profile = data.data.matchedUser.profile;
              const submissions = data.data.matchedUser.submitStats?.acSubmissionNum?.[0]?.count || 0;
              const rating = data.data.userContestRanking?.rating || 'Unrated';
              stats.lc = { name: profile.realName ? `${profile.realName} (${lcHandle})` : lcHandle, rating: typeof rating === 'number' ? Math.round(rating) : rating, solved: submissions, rank: profile.ranking || 'Unranked' };
+             
+             let lastRating = 1500;
+             const officialHist = data.data.userContestRankingHistory || [];
+             histories.lc = officialHist.filter(h => h.attended).map(h => {
+                const current = Math.round(h.rating);
+                const delta = current - lastRating;
+                lastRating = current;
+                return {
+                  id: `lc_${h.contest.title}`, name: h.contest.title, rating: current, delta: delta, rank: 'N/A',
+                  dateStr: new Date(h.contest.startTime * 1000).toLocaleDateString([], {month: 'short', day: 'numeric'})
+                };
+             });
           }
         } catch(e) {
           stats.lc = { name: `${lcHandle} (Mock)`, rating: 1950, solved: 450, rank: 12000 };
+          histories.lc = [
+            { id: 'lc_mock1', name: 'Mock LC Contest 1', rating: 1900, delta: +40, rank: 500, dateStr: 'Oct 2' },
+            { id: 'lc_mock2', name: 'Mock LC Contest 2', rating: 1950, delta: +50, rank: 300, dateStr: 'Oct 6' }
+          ];
         }
       }
-
-      if (ccHandle) {
-        stats.cc = { name: ccHandle, rating: 'Protected', rank: 'Protected' };
-      }
     } catch (e) {
-      console.log("Error fetching user data", e);
+      // debug mode disabled
     }
 
+    await AsyncStorage.setItem('signUpEpochs', JSON.stringify(updatedEpochs));
+    setSignUpEpochs(updatedEpochs);
     setLoadingAuth(false);
     setUserStats(stats);
-    setHandles({ cf: cfHandle, lc: lcHandle, cc: ccHandle });
+    setOfficialHistories(histories);
+    setHandles({ cf: cfHandle, lc: lcHandle });
     setIsAuthenticated(true);
     setIsAddingAccount(false);
-    fetchContests({ cf: cfHandle, lc: lcHandle, cc: ccHandle });
+    fetchContests({ cf: cfHandle, lc: lcHandle }, updatedEpochs);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    setHandles({ cf: '', lc: '', cc: '' });
-    setDraftHandles({ cf: '', lc: '', cc: '' });
-    setUserStats({ cf: null, lc: null, cc: null });
+    setHandles({ cf: '', lc: '' });
+    setDraftHandles({ cf: '', lc: '' });
+    setUserStats({ cf: null, lc: null });
     setContests([]);
     setPastContests([]);
     setSelectedPlatform(null);
     setCurrentTab('contests');
   };
 
-  const fetchContests = async (activeHandles) => {
+  const fetchContests = async (activeHandles, activeEpochs = signUpEpochs) => {
     setLoading(true);
     try {
       let upcoming = [];
       let past = [];
       const now = Date.now() / 1000;
+      const SEVEN_DAYS_EPOCH = 7 * 24 * 60 * 60;
 
       if (activeHandles.cf) {
         try {
@@ -177,12 +194,13 @@ export default function App() {
               id: `cf_${c.id}`, name: c.name, startTimeEpoch: c.startTimeSeconds,
               url: `https://codeforces.com/contest/${c.id}`, platform: 'Codeforces',
             }));
-            upcoming.push(...formatted.filter(c => c.startTimeEpoch > now));
-            past.push(...formatted.filter(c => c.startTimeEpoch <= now).slice(0, 15));
+            upcoming.push(...formatted.filter(c => c.startTimeEpoch > now && c.startTimeEpoch <= now + SEVEN_DAYS_EPOCH));
+            // ONLY push past contests that occurred AFTER the user signed up!
+            past.push(...formatted.filter(c => c.startTimeEpoch <= now && c.startTimeEpoch >= activeEpochs.cf));
           }
         } catch(e) {
           upcoming.push({ id: 'cf_mock1', name: 'Codeforces Round #900 (Div. 2)', startTimeEpoch: now + 86400, url: '#', platform: 'Codeforces' });
-          past.push({ id: 'cf_mock2', name: 'Codeforces Round #899 (Div. 2)', startTimeEpoch: now - 86400, url: '#', platform: 'Codeforces' });
+          past.push({ id: 'cf_mock', name: 'Mock CF Contest 1', startTimeEpoch: now - 100000, url: '#', platform: 'Codeforces' });
         }
       }
 
@@ -194,14 +212,14 @@ export default function App() {
           const data = await res.json();
           const lcContests = data.data?.allContests || [];
           const formatted = lcContests.map(c => ({
-              id: `lc_${c.titleSlug}`, name: c.title, startTimeEpoch: c.startTime,
+              id: `lc_${c.title}`, name: c.title, startTimeEpoch: c.startTime,
               url: `https://leetcode.com/contest/${c.titleSlug}`, platform: 'LeetCode',
           }));
-          upcoming.push(...formatted.filter(c => c.startTimeEpoch > now));
-          past.push(...formatted.filter(c => c.startTimeEpoch <= now).slice(0, 15));
+          upcoming.push(...formatted.filter(c => c.startTimeEpoch > now && c.startTimeEpoch <= now + SEVEN_DAYS_EPOCH));
+          past.push(...formatted.filter(c => c.startTimeEpoch <= now && c.startTimeEpoch >= activeEpochs.lc));
         } catch(e) {
           upcoming.push({ id: 'lc_mock1', name: 'Weekly Contest 400', startTimeEpoch: now + 172800, url: '#', platform: 'LeetCode' });
-          past.push({ id: 'lc_mock2', name: 'Biweekly Contest 120', startTimeEpoch: now - 172800, url: '#', platform: 'LeetCode' });
+          past.push({ id: 'lc_mock1', name: 'Mock LC Contest 1', startTimeEpoch: now - 150000, url: '#', platform: 'LeetCode' });
         }
       }
 
@@ -211,7 +229,7 @@ export default function App() {
       setContests(upcoming);
       setPastContests(past);
     } catch (error) {
-      console.error(error);
+      // debug disabled
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -227,7 +245,6 @@ export default function App() {
     switch (platform) {
       case 'Codeforces': return { bg: '#1E3A8A', text: '#93C5FD', border: '#3B82F6', id: 'cf' };
       case 'LeetCode': return { bg: '#78350F', text: '#FDE68A', border: '#F59E0B', id: 'lc' };
-      case 'CodeChef': return { bg: '#451A03', text: '#FFEDD5', border: '#A0522D', id: 'cc' };
       default: return { bg: '#333333', text: '#FFFFFF', border: '#555555', id: 'cf' };
     }
   };
@@ -248,10 +265,6 @@ export default function App() {
             <Text style={styles.label}>LeetCode Profile URL</Text>
             <TextInput style={[styles.input, { borderLeftColor: '#F59E0B', borderLeftWidth: 3 }]} placeholderTextColor="#737373" placeholder="https://leetcode.com/u/awice" value={draftHandles.lc} onChangeText={t => setDraftHandles({...draftHandles, lc: t})} autoCapitalize="none" autoCorrect={false} />
           </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>CodeChef Profile URL</Text>
-            <TextInput style={[styles.input, { borderLeftColor: '#A0522D', borderLeftWidth: 3 }]} placeholderTextColor="#737373" placeholder="https://www.codechef.com/users/genntenn" value={draftHandles.cc} onChangeText={t => setDraftHandles({...draftHandles, cc: t})} autoCapitalize="none" autoCorrect={false} />
-          </View>
 
           <TouchableOpacity style={styles.btnPrimary} onPress={handleLogin} disabled={loadingAuth}>
             {loadingAuth ? <ActivityIndicator color="#000000" /> : <Text style={styles.btnPrimaryText}>Continue</Text>}
@@ -263,14 +276,36 @@ export default function App() {
 
   const renderPlatformDetail = () => {
     const pCode = getPlatformColors(selectedPlatform).id;
-    const pHistory = localRatings[pCode];
+    const pHistory = officialHistories[pCode] || [];
     const pColor = getPlatformColors(selectedPlatform).border;
     const platformPast = pastContests.filter(c => c.platform === selectedPlatform);
 
-    // Calculate pure View based graph dimensions
-    const maxRating = Math.max(...pHistory, 1100);
-    const minRating = Math.max(0, Math.min(...pHistory, 900) - 100);
-    const range = maxRating - minRating;
+    let dataPoints = pHistory.map(h => h.rating);
+    let labels = pHistory.map(h => h.dateStr);
+    
+    // Provide fallback graph data if history is empty
+    if (dataPoints.length === 0) {
+       dataPoints = [1500];
+       labels = ['Start'];
+    }
+
+    // Limit to 6 points max
+    const displayData = dataPoints.slice(-6);
+    const displayLabels = labels.slice(-6);
+
+    const max = Math.max(...displayData, 1500) + 50;
+    const min = Math.min(...displayData, 800) - 50;
+    const range = max - min;
+    
+    const chartWidth = screenWidth - 80;
+    const chartHeight = 180;
+    const stepX = displayData.length > 1 ? chartWidth / (displayData.length - 1) : 0;
+
+    const points = displayData.map((val, i) => {
+      const x = i * stepX;
+      const y = chartHeight - ((val - min) / range) * chartHeight;
+      return { x, y, val, label: displayLabels[i] };
+    });
 
     return (
       <View style={styles.detailContainer}>
@@ -278,29 +313,61 @@ export default function App() {
           <Text style={styles.btnBackText}>← Back to Accounts</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>{selectedPlatform} Rating Progress</Text>
+        <Text style={styles.sectionTitle}>{selectedPlatform} Official Rating Progress</Text>
         
-        {/* Pure View-based Bar Chart (Works 100% on Web, iOS, Android without crashing) */}
         <View style={styles.chartWrapper}>
-          {pHistory.map((rating, i) => {
-            const heightPercent = Math.max(10, ((rating - minRating) / range) * 90);
-            return (
-              <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                <Text style={{ color: '#E5E5E5', fontSize: 10, marginBottom: 8, fontWeight: '700' }}>{rating}</Text>
-                <View style={{ width: 14, height: `${heightPercent}%`, backgroundColor: pColor, borderRadius: 4, minHeight: 10 }} />
-                <Text style={{ color: '#737373', fontSize: 9, marginTop: 8 }}>{i === 0 ? 'Start' : `#${i}`}</Text>
-              </View>
-            );
-          })}
+          <View style={{ width: chartWidth, height: chartHeight, position: 'relative' }}>
+            {/* Draw Connecting Lines */}
+            {points.map((p, i) => {
+              if (i === 0) return null;
+              const prev = points[i - 1];
+              const dx = p.x - prev.x;
+              const dy = p.y - prev.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+              const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+              const cx = (prev.x + p.x) / 2;
+              const cy = (prev.y + p.y) / 2;
+              
+              return (
+                <View key={`line-${i}`} style={{
+                  position: 'absolute', left: cx - length / 2, top: cy - 1, 
+                  width: length, height: 2, backgroundColor: pColor,
+                  transform: [{ rotate: `${angle}deg` }]
+                }} />
+              );
+            })}
+            
+            {/* Draw Data Dots */}
+            {points.map((p, i) => (
+              <View key={`dot-${i}`} style={{ position: 'absolute', left: p.x - 4, top: p.y - 4, width: 8, height: 8, borderRadius: 4, backgroundColor: pColor }} />
+            ))}
+            
+            {/* Draw Values */}
+            {points.map((p, i) => (
+              <Text key={`val-${i}`} style={{ position: 'absolute', left: p.x - 20, top: p.y - 20, width: 40, textAlign: 'center', color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>
+                {p.val}
+              </Text>
+            ))}
+            
+            {/* Draw X-Axis Labels (Dates) */}
+            {points.map((p, i) => (
+              <Text key={`label-${i}`} style={{ position: 'absolute', left: p.x - 25, top: chartHeight + 10, width: 50, textAlign: 'center', color: '#A3A3A3', fontSize: 10 }}>
+                {p.label}
+              </Text>
+            ))}
+          </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>Past {selectedPlatform} Contests</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>Contests Since Registration</Text>
         <FlatList
           data={platformPast}
           keyExtractor={item => item.id}
-          ListEmptyComponent={<Text style={styles.emptyText}>No recent past contests found.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>No past contests found since you signed up.</Text>}
           renderItem={({item}) => {
-            const isAttended = !!attendedContests[item.id];
+            // Automatically determine if attended by checking official API history
+            const officialMatch = pHistory.find(h => h.id === item.id || h.name === item.name);
+            const isAttended = !!officialMatch;
+            
             return (
               <View style={[styles.card, { borderLeftColor: pColor, borderLeftWidth: 4 }]}>
                 <View style={styles.cardHeader}>
@@ -313,14 +380,12 @@ export default function App() {
                 </View>
                 {isAttended ? (
                    <View style={styles.statsRow}>
-                     <View style={styles.statBox}><Text style={styles.statLabel}>Rank</Text><Text style={styles.statValue}>{attendedContests[item.id].rank}</Text></View>
-                     <View style={styles.statBox}><Text style={styles.statLabel}>Solved</Text><Text style={styles.statValue}>{attendedContests[item.id].solved}</Text></View>
-                     <View style={styles.statBox}><Text style={styles.statLabel}>Delta</Text><Text style={[styles.statValue, {color: attendedContests[item.id].delta >= 0 ? '#22C55E' : '#EF4444'}]}>{attendedContests[item.id].delta >= 0 ? '+' : ''}{attendedContests[item.id].delta}</Text></View>
+                     <View style={styles.statBox}><Text style={styles.statLabel}>Rank</Text><Text style={styles.statValue}>{officialMatch.rank}</Text></View>
+                     <View style={styles.statBox}><Text style={styles.statLabel}>New Rating</Text><Text style={styles.statValue}>{officialMatch.rating}</Text></View>
+                     <View style={styles.statBox}><Text style={styles.statLabel}>Delta</Text><Text style={[styles.statValue, {color: officialMatch.delta >= 0 ? '#22C55E' : '#EF4444'}]}>{officialMatch.delta >= 0 ? '+' : ''}{officialMatch.delta}</Text></View>
                    </View>
                 ) : (
-                   <TouchableOpacity style={styles.btnLog} onPress={() => setLoggingContest(item)}>
-                     <Text style={styles.btnLogText}>Log Performance</Text>
-                   </TouchableOpacity>
+                   <Text style={styles.btnLogText}>Automatically detected as missed from Official Data</Text>
                 )}
               </View>
             );
@@ -336,7 +401,7 @@ export default function App() {
       
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {currentTab === 'contests' ? 'Upcoming Contests' : 'Your Progress'}
+          {currentTab === 'contests' ? 'Upcoming Contests' : 'Your Official Progress'}
         </Text>
       </View>
 
@@ -349,7 +414,7 @@ export default function App() {
             keyExtractor={item => item.id}
             contentContainerStyle={styles.listContent}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />}
-            ListEmptyComponent={<Text style={styles.emptyText}>No upcoming contests found.</Text>}
+            ListEmptyComponent={<Text style={styles.emptyText}>No upcoming contests found within the next 7 days.</Text>}
             renderItem={({ item }) => {
               const date = new Date(item.startTimeEpoch * 1000);
               const colors = getPlatformColors(item.platform);
@@ -382,7 +447,7 @@ export default function App() {
                 </View>
                 <View style={styles.statsRow}>
                   <View style={styles.statBox}><Text style={styles.statLabel}>Official Rating</Text><Text style={styles.statValue}>{userStats.cf.rating}</Text></View>
-                  <View style={styles.statBox}><Text style={styles.statLabel}>Local Rating</Text><Text style={[styles.statValue, {color: '#3B82F6'}]}>{localRatings.cf[localRatings.cf.length-1]}</Text></View>
+                  <View style={styles.statBox}><Text style={styles.statLabel}>Total Contests</Text><Text style={[styles.statValue, {color: '#3B82F6'}]}>{officialHistories.cf.length}</Text></View>
                 </View>
                 <Text style={styles.btnLogText}>Tap to view history & graph →</Text>
               </TouchableOpacity>
@@ -398,7 +463,7 @@ export default function App() {
                 </View>
                 <View style={styles.statsRow}>
                   <View style={styles.statBox}><Text style={styles.statLabel}>Official Rating</Text><Text style={styles.statValue}>{userStats.lc.rating}</Text></View>
-                  <View style={styles.statBox}><Text style={styles.statLabel}>Local Rating</Text><Text style={[styles.statValue, {color: '#F59E0B'}]}>{localRatings.lc[localRatings.lc.length-1]}</Text></View>
+                  <View style={styles.statBox}><Text style={styles.statLabel}>Total Contests</Text><Text style={[styles.statValue, {color: '#F59E0B'}]}>{officialHistories.lc.length}</Text></View>
                 </View>
                 <Text style={styles.btnLogText}>Tap to view history & graph →</Text>
               </TouchableOpacity>
@@ -425,34 +490,6 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* MODAL FOR LOGGING PERFORMANCE */}
-      <Modal visible={!!loggingContest} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalContent}>
-             <Text style={styles.modalTitle}>Log Performance</Text>
-             <Text style={styles.modalSub}>{loggingContest?.name}</Text>
-             
-             <View style={styles.inputGroup}>
-               <Text style={styles.label}>Global Rank</Text>
-               <TextInput style={styles.input} keyboardType="numeric" value={logRank} onChangeText={setLogRank} placeholder="e.g. 500" placeholderTextColor="#737373" />
-             </View>
-             <View style={styles.inputGroup}>
-               <Text style={styles.label}>Problems Solved</Text>
-               <TextInput style={styles.input} keyboardType="numeric" value={logSolved} onChangeText={setLogSolved} placeholder="e.g. 4" placeholderTextColor="#737373" />
-             </View>
-
-             <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-               <TouchableOpacity style={[styles.btnPrimary, {flex: 1, marginRight: 8, backgroundColor: '#333'}]} onPress={() => setLoggingContest(null)}>
-                 <Text style={[styles.btnPrimaryText, {color: '#FFF'}]}>Cancel</Text>
-               </TouchableOpacity>
-               <TouchableOpacity style={[styles.btnPrimary, {flex: 1, backgroundColor: getPlatformColors(loggingContest?.platform).border}]} onPress={submitLog}>
-                 <Text style={styles.btnPrimaryText}>Save Stats</Text>
-               </TouchableOpacity>
-             </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-
       {/* MODAL FOR ADDING MORE ACCOUNTS */}
       <Modal visible={isAddingAccount} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -467,10 +504,6 @@ export default function App() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>LeetCode</Text>
               <TextInput style={[styles.input, { borderLeftColor: '#F59E0B', borderLeftWidth: 3 }]} placeholderTextColor="#737373" value={draftHandles.lc} onChangeText={t => setDraftHandles({...draftHandles, lc: t})} autoCapitalize="none" autoCorrect={false} />
-            </View>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>CodeChef</Text>
-              <TextInput style={[styles.input, { borderLeftColor: '#A0522D', borderLeftWidth: 3 }]} placeholderTextColor="#737373" value={draftHandles.cc} onChangeText={t => setDraftHandles({...draftHandles, cc: t})} autoCapitalize="none" autoCorrect={false} />
             </View>
 
             <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 8}}>
@@ -512,13 +545,13 @@ const styles = StyleSheet.create({
   contestName: { fontSize: 18, fontWeight: '600', color: '#FFFFFF', lineHeight: 26 },
   emptyText: { textAlign: 'center', marginTop: 10, color: '#737373', fontSize: 14 },
   
-  logoBadge: { backgroundColor: '#FFFFFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, justifyContent: 'center', alignItems: 'center', height: 28 },
-  cardLogo: { width: 80, height: 20 },
+  logoBadge: { justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  cardLogo: { width: 90, height: 28 },
   
   accountContainer: { flex: 1, padding: 24 },
   detailContainer: { flex: 1, paddingHorizontal: 24, paddingTop: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 16 },
-  chartWrapper: { backgroundColor: '#121212', borderRadius: 16, paddingHorizontal: 16, paddingTop: 30, paddingBottom: 16, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', height: 240, borderWidth: 1, borderColor: '#222222' },
+  chartWrapper: { backgroundColor: '#121212', borderRadius: 16, paddingVertical: 32, alignItems: 'center', borderWidth: 1, borderColor: '#222222', minHeight: 260 },
   
   btnBack: { marginBottom: 16 },
   btnBackText: { color: '#A3A3A3', fontSize: 16, fontWeight: '600' },

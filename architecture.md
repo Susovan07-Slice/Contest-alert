@@ -1,67 +1,49 @@
 # Architecture and Implementation Flow
 
 ## 🏛️ Architecture Overview
-- **Path Selected**: Pure Python Desktop App. No browser extension or JavaScript required.
-- **How it works**: A Python script runs continuously in the background on your OS. It fetches contest data, calculates when the next contest is, and uses native OS libraries to pop up a desktop notification.
+- **Path Selected**: Architecture 2 (Python Backend + Mobile App Frontend).
+- **How it works**:
+  - **Backend**: A Python daemon runs 24/7 on a cloud server (like Render/Heroku). It monitors coding contest schedules and does the heavy lifting.
+  - **Middleman**: Firebase Cloud Messaging (FCM) routes push notifications to the devices.
+  - **Frontend**: A React Native (Expo) mobile app receives the push notifications and displays a beautiful UI of upcoming contests on iOS and Android.
 - **Data Sources (APIs)**:
   - Codeforces Official API (`codeforces.com/api/contest.list`)
-  - CodeChef Public JSON (`codechef.com/api/list/contests/all`)
-  - CLIST API (Recommended for LeetCode/CodeChef to aggregate and normalize timestamps)
+  - CLIST API (For LeetCode/CodeChef)
 
-## 🧠 Why We Used What We Used
-- **Why Python?** Python is fantastic for backend scripting and data manipulation. It allows you to focus purely on the logic without worrying about browser sandbox restrictions or Manifest V3 rules.
-- **Why `plyer` / `win10toast`?** These libraries allow Python to trigger native notifications (like the Windows Action Center). It looks professional and integrates directly with the OS.
-- **Why a background script?** Unlike an extension which relies on the browser being open, a desktop app runs silently in the background as long as your computer is on, making it a reliable daemon process.
+## 🗺️ Implementation Flow
 
-## 🗺️ 10-Day Implementation Flow
-
-### Day 1–2: The Foundation & Codeforces
-- **Goal**: Set up the Python environment and fetch real data.
-
+### Phase 1: The Python Backend (Days 1-4) ✅
+- **Goal**: Build the brain that monitors the time.
 ```mermaid
 graph TD;
-    A[Create virtual environment] --> B[Install 'requests' library];
-    B --> C[Write fetch_codeforces.py];
-    C --> D[Parse JSON response];
-    D --> E[Filter BEFORE phase contests];
+    A[Fetch Codeforces API] --> B[Filter upcoming contests];
+    B --> C[Convert timestamps to Epoch];
+    C --> D[Infinite loop checks time against 3-day, 1-hr, 10-min milestones];
 ```
 
-### Day 3–4: Time Math & Scheduling
-- **Goal**: Calculate accurate start times and build the main loop.
-
+### Phase 2: The Mobile App Frontend (Days 5-6)
+- **Goal**: Create the React Native mobile app.
 ```mermaid
 graph TD;
-    A[Convert API timestamps to datetime] --> B[Calculate time until contest];
-    B --> C[Create an infinite while loop];
-    C --> D[Use time.sleep to wait for alarms];
+    A[Init React Native Expo project] --> B[Build clean UI for Contest List];
+    B --> C[Fetch backend or APIs for UI data];
+    C --> D[Run on physical phone via Expo Go];
 ```
 
-### Day 5–6: Desktop Notifications
-- **Goal**: Make your OS alert you.
-
+### Phase 3: Wiring up Push Notifications (Days 7-8)
+- **Goal**: Connect the Python brain to the mobile phone.
 ```mermaid
 graph TD;
-    A[Install 'plyer' or 'win10toast'] --> B[Write notification helper function];
-    B --> C[Integrate into main loop];
-    C --> D[Test by mocking a contest 1 min away];
+    A[Setup Firebase Project FCM] --> B[Mobile App generates Device Token];
+    B --> C[Mobile App sends Token to Python Server];
+    C --> D[Python Server fires Push Notification at milestones];
 ```
 
-### Day 7–8: Adding More Judges
-- **Goal**: Expand data sources.
-
+### Phase 4: Polish & Cloud Deployment (Days 9-10)
+- **Goal**: Deploy the server and polish the app.
 ```mermaid
 graph TD;
-    A[Add fetch logic for CLIST API] --> B[Normalize LeetCode & CodeChef data];
-    B --> C[Merge all contests into one master list];
-    C --> D[Sort list by upcoming start time];
-```
-
-### Day 9–10: Polish & Background Execution
-- **Goal**: Make it run silently and smoothly.
-
-```mermaid
-graph TD;
-    A[Add logging instead of print statements] --> B[Handle API failure/disconnect errors];
-    B --> C[Configure script to run on startup];
-    C --> D[Enjoy your automated contest alarms!];
+    A[Deploy Python script to Render/Heroku] --> B[Add App Icons & Splash Screen];
+    B --> C[Test Push Notifications on iOS/Android];
+    C --> D[Enjoy your Professional Mobile App!];
 ```

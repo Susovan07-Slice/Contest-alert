@@ -7,7 +7,7 @@ The Contest Alarm Tracker is an ultimate, fully automated companion for competit
 ## 📱 Download the Mobile App (Android)
 The mobile app features a beautiful dark-mode interface and runs completely silently in the background. It connects to our 24/7 cloud server via Google Firebase Cloud Messaging to receive remote push notifications.
 
-### [👉 Click Here to Download `app.apk`](https://github.com/Susovan07-Slice/Contest-alert/blob/development/app.apk?raw=true)
+### [👉 Click Here to Download `app.apk` (Official Release)](https://github.com/Susovan07-Slice/Contest-alert/releases/latest/download/app.apk)
 
 **Installation Instructions:**
 1. Click the link above to download the `app.apk` file.

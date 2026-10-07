@@ -34,6 +34,19 @@ export default function App() {
       try {
         const storedEpochs = await AsyncStorage.getItem('signUpEpochs');
         if (storedEpochs) setSignUpEpochs(JSON.parse(storedEpochs));
+        
+        const storedHandles = await AsyncStorage.getItem('savedHandles');
+        const storedStats = await AsyncStorage.getItem('savedStats');
+        const storedHistories = await AsyncStorage.getItem('savedHistories');
+        
+        if (storedHandles && storedStats && storedHistories) {
+            const parsedHandles = JSON.parse(storedHandles);
+            setHandles(parsedHandles);
+            setUserStats(JSON.parse(storedStats));
+            setOfficialHistories(JSON.parse(storedHistories));
+            setIsAuthenticated(true);
+            fetchContests(parsedHandles, storedEpochs ? JSON.parse(storedEpochs) : {});
+        }
       } catch (e) { /* ignore */ }
     };
     loadData();
@@ -173,6 +186,9 @@ export default function App() {
     }
 
     await AsyncStorage.setItem('signUpEpochs', JSON.stringify(updatedEpochs));
+    await AsyncStorage.setItem('savedHandles', JSON.stringify({ cf: cfHandle, lc: lcHandle }));
+    await AsyncStorage.setItem('savedStats', JSON.stringify(stats));
+    await AsyncStorage.setItem('savedHistories', JSON.stringify(histories));
     setSignUpEpochs(updatedEpochs);
     setLoadingAuth(false);
     setUserStats(stats);
@@ -184,6 +200,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    AsyncStorage.removeItem('savedHandles');
+    AsyncStorage.removeItem('savedStats');
+    AsyncStorage.removeItem('savedHistories');
     setIsAuthenticated(false);
     setHandles({ cf: '', lc: '' });
     setDraftHandles({ cf: '', lc: '' });
